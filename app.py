@@ -206,12 +206,10 @@ def api_summary():
     wh = current_warehouse()
     conn = get_db()
     try:
+        loc_expr = "CASE WHEN COALESCE(m.subtype,'spotreba')='predaj' THEN 'Predaj' ELSE COALESCE(NULLIF(m.location,''),'— bez prevádzky —') END"
         cur = qex(conn, f'''
             SELECT
-                CASE WHEN COALESCE(m.subtype, 'spotreba') = 'predaj'
-                     THEN 'Predaj'
-                     ELSE COALESCE(NULLIF(m.location, ''), '— bez prevádzky —')
-                END AS location,
+                {loc_expr} AS location,
                 ROUND(CAST(SUM(m.quantity * p.unit_price) AS numeric), 2) AS total_cost,
                 SUM(m.quantity) AS total_qty,
                 COUNT(DISTINCT p.id) AS num_products
@@ -220,7 +218,7 @@ def api_summary():
             WHERE m.type = 'OUT'
               AND {month_expr('m.created_at')} = ?
               AND COALESCE(m.warehouse, ?) = ?
-            GROUP BY location
+            GROUP BY {loc_expr}
             ORDER BY total_cost DESC
         ''', (month, WAREHOUSES[0], wh))
         rows = qrows(cur)
@@ -265,12 +263,10 @@ def api_trend():
 
         # Náklady pre každú prevádzku × mesiac
         placeholders = ','.join(['?' for _ in months])
+        loc_expr = "CASE WHEN COALESCE(m.subtype,'spotreba')='predaj' THEN 'Predaj' ELSE COALESCE(NULLIF(m.location,''),'— bez prevádzky —') END"
         cur2 = qex(conn, f'''
             SELECT
-                CASE WHEN COALESCE(m.subtype, 'spotreba') = 'predaj'
-                     THEN 'Predaj'
-                     ELSE COALESCE(NULLIF(m.location, ''), '— bez prevádzky —')
-                END AS location,
+                {loc_expr} AS location,
                 {month_expr('m.created_at')} AS month,
                 ROUND(CAST(SUM(m.quantity * p.unit_price) AS numeric), 2) AS total_cost
             FROM movements m
@@ -278,8 +274,8 @@ def api_trend():
             WHERE m.type = 'OUT'
               AND {month_expr('m.created_at')} IN ({placeholders})
               AND COALESCE(m.warehouse, ?) = ?
-            GROUP BY location, month
-            ORDER BY location, month
+            GROUP BY {loc_expr}, {month_expr('m.created_at')}
+            ORDER BY {loc_expr}, {month_expr('m.created_at')}
         ''', (*months, WAREHOUSES[0], wh))
         rows = qrows(cur2)
 

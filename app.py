@@ -202,7 +202,10 @@ def api_summary():
     try:
         cur = qex(conn, f'''
             SELECT
-                COALESCE(NULLIF(m.location, ''), '— bez prevádzky —') AS location,
+                CASE WHEN COALESCE(m.subtype, 'spotreba') = 'predaj'
+                     THEN 'Predaj'
+                     ELSE COALESCE(NULLIF(m.location, ''), '— bez prevádzky —')
+                END AS location,
                 ROUND(CAST(SUM(m.quantity * p.unit_price) AS numeric), 2) AS total_cost,
                 SUM(m.quantity) AS total_qty,
                 COUNT(DISTINCT p.id) AS num_products
@@ -258,7 +261,10 @@ def api_trend():
         placeholders = ','.join(['?' for _ in months])
         cur2 = qex(conn, f'''
             SELECT
-                COALESCE(NULLIF(m.location, ''), '— bez prevádzky —') AS location,
+                CASE WHEN COALESCE(m.subtype, 'spotreba') = 'predaj'
+                     THEN 'Predaj'
+                     ELSE COALESCE(NULLIF(m.location, ''), '— bez prevádzky —')
+                END AS location,
                 {month_expr('m.created_at')} AS month,
                 ROUND(CAST(SUM(m.quantity * p.unit_price) AS numeric), 2) AS total_cost
             FROM movements m
@@ -311,21 +317,39 @@ def api_location_detail():
     wh = current_warehouse()
     conn = get_db()
     try:
-        db_location = '' if location == '— bez prevádzky —' else location
-        cur = qex(conn, f'''
-            SELECT p.code, p.name, p.unit,
-                   SUM(m.quantity) AS qty,
-                   p.unit_price,
-                   ROUND(CAST(SUM(m.quantity * p.unit_price) AS numeric), 2) AS cost
-            FROM movements m
-            JOIN products p ON p.id = m.product_id
-            WHERE m.type = 'OUT'
-              AND COALESCE(NULLIF(m.location, ''), '') = ?
-              AND {month_expr('m.created_at')} = ?
-              AND COALESCE(m.warehouse, ?) = ?
-            GROUP BY p.id, p.code, p.name, p.unit, p.unit_price
-            ORDER BY cost DESC
-        ''', (db_location, month, WAREHOUSES[0], wh))
+        if location == 'Predaj':
+            # Špeciálna prevádzka — zobraziť všetky pohyby s subtype='predaj'
+            cur = qex(conn, f'''
+                SELECT p.code, p.name, p.unit,
+                       SUM(m.quantity) AS qty,
+                       p.unit_price,
+                       ROUND(CAST(SUM(m.quantity * p.unit_price) AS numeric), 2) AS cost
+                FROM movements m
+                JOIN products p ON p.id = m.product_id
+                WHERE m.type = 'OUT'
+                  AND COALESCE(m.subtype, 'spotreba') = 'predaj'
+                  AND {month_expr('m.created_at')} = ?
+                  AND COALESCE(m.warehouse, ?) = ?
+                GROUP BY p.id, p.code, p.name, p.unit, p.unit_price
+                ORDER BY cost DESC
+            ''', (month, WAREHOUSES[0], wh))
+        else:
+            db_location = '' if location == '— bez prevádzky —' else location
+            cur = qex(conn, f'''
+                SELECT p.code, p.name, p.unit,
+                       SUM(m.quantity) AS qty,
+                       p.unit_price,
+                       ROUND(CAST(SUM(m.quantity * p.unit_price) AS numeric), 2) AS cost
+                FROM movements m
+                JOIN products p ON p.id = m.product_id
+                WHERE m.type = 'OUT'
+                  AND COALESCE(m.subtype, 'spotreba') != 'predaj'
+                  AND COALESCE(NULLIF(m.location, ''), '') = ?
+                  AND {month_expr('m.created_at')} = ?
+                  AND COALESCE(m.warehouse, ?) = ?
+                GROUP BY p.id, p.code, p.name, p.unit, p.unit_price
+                ORDER BY cost DESC
+            ''', (db_location, month, WAREHOUSES[0], wh))
         rows = qrows(cur)
         for r in rows:
             r['qty'] = float(r['qty'] or 0)

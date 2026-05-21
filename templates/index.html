@@ -349,9 +349,19 @@ async function loadPrehlad() {
     apiFetch(`/api/revenues?month=${month}`)
   ]);
   document.getElementById('prehladLoading').style.display = 'none';
-  if (!res || !res.ok) return;
+  if (!res) return;
+  if (!res.ok) {
+    const txt = await res.text();
+    document.getElementById('prehladBody').innerHTML =
+      `<tr><td colspan="7"><div class="alert alert-danger m-3 small">Chyba servera (${res.status}): ${txt.slice(0,300)}</div></td></tr>`;
+    return;
+  }
   const data = await res.json();
-  if (data.error) { alert('Chyba: ' + data.error); return; }
+  if (data.error) {
+    document.getElementById('prehladBody').innerHTML =
+      `<tr><td colspan="7"><div class="alert alert-danger m-3 small">Chyba: ${data.error}</div></td></tr>`;
+    return;
+  }
   prehladData = data;
 
   prevMonthData = {};

@@ -119,7 +119,7 @@ def logout():
 # ── DB init ───────────────────────────────────────────────────────────────────
 
 def init_db():
-    """Vytvorí tabuľku revenues ak ešte neexistuje."""
+    """Vytvorí tabuľku revenues a zabezpečí existenciu stĺpca subtype v movements."""
     conn = get_db()
     try:
         if POSTGRES:
@@ -131,6 +131,8 @@ def init_db():
                 amount REAL NOT NULL DEFAULT 0,
                 UNIQUE(location, month, warehouse)
             )''')
+            # Zabezpeč existenciu subtype stĺpca (môže ho pridať aj sklad-app)
+            qex(conn, "ALTER TABLE movements ADD COLUMN IF NOT EXISTS subtype TEXT DEFAULT 'spotreba'")
         else:
             qex(conn, '''CREATE TABLE IF NOT EXISTS revenues (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,9 +142,13 @@ def init_db():
                 amount REAL NOT NULL DEFAULT 0,
                 UNIQUE(location, month, warehouse)
             )''')
+            try:
+                conn.execute("ALTER TABLE movements ADD COLUMN subtype TEXT DEFAULT 'spotreba'")
+            except Exception:
+                pass
         conn.commit()
     except Exception as e:
-        app.logger.error('init_db revenues: %s', e)
+        app.logger.error('init_db: %s', e)
     finally:
         conn.close()
 

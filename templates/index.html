@@ -35,6 +35,16 @@
   .trend-up { color: #dc2626; }
   .trend-down { color: #16a34a; }
   .trend-same { color: #6c757d; }
+  .revenue-input { width: 110px; font-size: .85rem; padding: 3px 7px; border: 1px solid #cbd5e1;
+    border-radius: 5px; text-align: right; background: #f8fafc; transition: border .15s; }
+  .revenue-input:focus { border-color: #0891b2; outline: none; background: #fff; }
+  .revenue-input.saving { border-color: #f59e0b; }
+  .revenue-input.saved { border-color: #16a34a; background: #f0fdf4; }
+  .pct-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: .8rem; font-weight: 600; }
+  .pct-ok { background: #dcfce7; color: #166534; }
+  .pct-warn { background: #fef9c3; color: #854d0e; }
+  .pct-danger { background: #fee2e2; color: #991b1b; }
+  .pct-none { color: #9ca3af; font-size: .8rem; }
   .detail-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 2000; align-items: center; justify-content: center; }
   .detail-overlay.show { display: flex; }
   .detail-panel { background: #fff; border-radius: 14px; width: 620px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 16px 48px rgba(0,0,0,.2); }
@@ -154,8 +164,9 @@
               <tr>
                 <th>Prevádzka</th>
                 <th class="text-end">Náklady</th>
+                <th class="text-end col-hide-mobile">Tržba (€)</th>
+                <th class="text-end col-hide-mobile">% nákladov</th>
                 <th class="col-hide-mobile">Podiel</th>
-                <th class="text-end col-hide-mobile">Produkty</th>
                 <th class="text-end col-hide-mobile">Trend</th>
                 <th></th>
               </tr>
@@ -302,6 +313,7 @@ async function apiFetch(url) {
 // ── PREHĽAD ───────────────────────────────────────────────────────────────────
 let prehladData = null;
 let prevMonthData = {};   // {location: cost} za predchádzajúci mesiac
+let revenues = {};        // {location: amount} tržby pre aktuálny mesiac
 
 async function initMonths() {
   const res = await apiFetch('/api/months');
@@ -327,14 +339,14 @@ async function loadPrehlad() {
   document.getElementById('prehladEmpty').style.display = 'none';
   document.getElementById('prehladBody').innerHTML = '';
 
-  // Načítaj aktuálny a predchádzajúci mesiac paralelne (pre trend šípky)
   const [y, m] = month.split('-').map(Number);
   const prevDate = new Date(y, m - 2, 1);
   const prevMonth = prevDate.toISOString().slice(0, 7);
 
-  const [res, prevRes] = await Promise.all([
+  const [res, prevRes, revRes] = await Promise.all([
     apiFetch(`/api/summary?month=${month}`),
-    apiFetch(`/api/summary?month=${prevMonth}`)
+    apiFetch(`/api/summary?month=${prevMonth}`),
+    apiFetch(`/api/revenues?month=${month}`)
   ]);
   document.getElementById('prehladLoading').style.display = 'none';
   if (!res || !res.ok) return;
@@ -342,11 +354,16 @@ async function loadPrehlad() {
   if (data.error) { alert('Chyba: ' + data.error); return; }
   prehladData = data;
 
-  // Predchádzajúci mesiac
   prevMonthData = {};
   if (prevRes && prevRes.ok) {
     const prev = await prevRes.json();
     if (!prev.error) prev.rows.forEach(r => { prevMonthData[r.location] = r.total_cost; });
+  }
+
+  revenues = {};
+  if (revRes && revRes.ok) {
+    const rv = await revRes.json();
+    if (typeof rv === 'object' && !rv.error) revenues = rv;
   }
 
   // Štatistiky
@@ -356,7 +373,10 @@ async function loadPrehlad() {
   document.getElementById('statAvg').textContent = validRows.length ? fmtEur(data.total / validRows.length) : '0,00 €';
   document.getElementById('statTop').textContent = validRows.length ? validRows[0].location.replace('— bez prevádzky —','—') : '—';
 
-  // Tabuľka
+  renderPrehladTable(data, month);
+}
+
+function renderPrehladTable(data, month) {
   const body = document.getElementById('prehladBody');
   if (!data.rows.length) {
     document.getElementById('prehladEmpty').style.display = 'block';
@@ -372,20 +392,73 @@ async function loadPrehlad() {
       else if (diff < -0.5) trendHtml = `<span class="trend-down"><i class="bi bi-arrow-down-short"></i>${pct}%</span>`;
       else trendHtml = `<span class="trend-same">±0%</span>`;
     }
-    return `<tr class="loc-row" onclick="openDetail('${r.location.replace(/'/g,"\\'")}', '${month}')">
+
+    const rev = revenues[r.location] || 0;
+    const revVal = rev > 0 ? rev.toFixed(2) : '';
+    const pctNaklady = rev > 0 ? (r.total_cost / rev * 100) : null;
+    const pctHtml = pctNaklady !== null
+      ? `<span class="pct-badge ${pctNaklady < 5 ? 'pct-ok' : pctNaklady < 10 ? 'pct-warn' : 'pct-danger'}">${pctNaklady.toFixed(1)}%</span>`
+      : `<span class="pct-none">— zadaj tržbu</span>`;
+
+    const locEsc = r.location.replace(/'/g, "\\'");
+    return `<tr class="loc-row" onclick="openDetail('${locEsc}', '${month}')">
       <td class="fw-semibold">${r.location}</td>
       <td class="text-end fw-bold">${fmtEur(r.total_cost)}</td>
+      <td class="text-end col-hide-mobile" onclick="event.stopPropagation()">
+        <input class="revenue-input" type="number" min="0" step="0.01"
+               value="${revVal}" placeholder="0,00"
+               data-location="${r.location.replace(/"/g,'&quot;')}"
+               data-month="${month}"
+               onkeydown="if(event.key==='Enter')this.blur()"
+               onblur="saveRevenue(this)">
+      </td>
+      <td class="text-end col-hide-mobile">${pctHtml}</td>
       <td class="col-hide-mobile" style="min-width:120px">
         <div class="d-flex align-items-center gap-2">
           <div class="pct-bar flex-grow-1"><div class="pct-bar-fill" style="width:${r.pct}%"></div></div>
           <span class="text-muted small" style="min-width:36px">${r.pct}%</span>
         </div>
       </td>
-      <td class="text-end text-muted col-hide-mobile">${r.num_products}</td>
       <td class="text-end col-hide-mobile">${trendHtml}</td>
       <td class="text-end"><i class="bi bi-chevron-right text-muted"></i></td>
     </tr>`;
   }).join('');
+}
+
+async function saveRevenue(input) {
+  const location = input.dataset.location;
+  const month = input.dataset.month;
+  const amount = parseFloat(input.value) || 0;
+
+  input.classList.add('saving');
+  input.classList.remove('saved');
+
+  const res = await fetch('/api/revenue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ location, month, amount })
+  });
+  if (res.ok) {
+    revenues[location] = amount;
+    input.classList.remove('saving');
+    input.classList.add('saved');
+    // Prepočítaj % v riadku bez reload celej tabuľky
+    const row = input.closest('tr');
+    const costCell = row.querySelector('td:nth-child(2)');
+    const costText = costCell ? costCell.textContent.replace(/[€\s,]/g, '').replace(',', '.') : '0';
+    const cost = parseFloat(costText.replace(',', '.')) || 0;
+    const pctCell = row.querySelector('td:nth-child(4)');
+    if (pctCell) {
+      const pct = amount > 0 ? (cost / amount * 100) : null;
+      pctCell.innerHTML = pct !== null
+        ? `<span class="pct-badge ${pct < 5 ? 'pct-ok' : pct < 10 ? 'pct-warn' : 'pct-danger'}">${pct.toFixed(1)}%</span>`
+        : `<span class="pct-none">— zadaj tržbu</span>`;
+    }
+    setTimeout(() => input.classList.remove('saved'), 2000);
+  } else {
+    input.classList.remove('saving');
+    alert('Nepodarilo sa uložiť tržbu.');
+  }
 }
 
 // ── Detail prevádzky ──────────────────────────────────────────────────────────

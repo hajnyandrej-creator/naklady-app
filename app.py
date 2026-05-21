@@ -116,6 +116,37 @@ def logout():
     return redirect('/login' if APP_PASSWORD else '/')
 
 
+# ── DB init ───────────────────────────────────────────────────────────────────
+
+def init_db():
+    """Vytvorí tabuľku revenues ak ešte neexistuje."""
+    conn = get_db()
+    try:
+        if POSTGRES:
+            qex(conn, '''CREATE TABLE IF NOT EXISTS revenues (
+                id SERIAL PRIMARY KEY,
+                location TEXT NOT NULL,
+                month TEXT NOT NULL,
+                warehouse TEXT NOT NULL,
+                amount REAL NOT NULL DEFAULT 0,
+                UNIQUE(location, month, warehouse)
+            )''')
+        else:
+            qex(conn, '''CREATE TABLE IF NOT EXISTS revenues (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                location TEXT NOT NULL,
+                month TEXT NOT NULL,
+                warehouse TEXT NOT NULL,
+                amount REAL NOT NULL DEFAULT 0,
+                UNIQUE(location, month, warehouse)
+            )''')
+        conn.commit()
+    except Exception as e:
+        app.logger.error('init_db revenues: %s', e)
+    finally:
+        conn.close()
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 @app.route('/')
@@ -310,6 +341,63 @@ def api_location_detail():
     finally:
         conn.close()
 
+
+@app.route('/api/revenues')
+@require_auth
+def api_revenues():
+    """Vráti všetky tržby pre daný mesiac a sklad. {location: amount}"""
+    month = request.args.get('month', datetime.now().strftime('%Y-%m'))
+    wh = current_warehouse()
+    conn = get_db()
+    try:
+        cur = qex(conn,
+            "SELECT location, amount FROM revenues WHERE month = ? AND warehouse = ?",
+            (month, wh))
+        result = {r['location']: float(r['amount']) for r in qrows(cur)}
+        return jsonify(result)
+    except Exception as e:
+        app.logger.error('api_revenues: %s', e)
+        return jsonify({}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/revenue', methods=['POST'])
+@require_auth
+def api_save_revenue():
+    """Uloží alebo aktualizuje tržbu pre prevádzku + mesiac."""
+    data = request.json or {}
+    location = (data.get('location') or '').strip()
+    month = (data.get('month') or '').strip()
+    amount = float(data.get('amount') or 0)
+    wh = current_warehouse()
+
+    if not location or not month:
+        return jsonify({'error': 'Chýba location alebo month'}), 400
+
+    conn = get_db()
+    try:
+        if POSTGRES:
+            qex(conn,
+                "INSERT INTO revenues (location, month, warehouse, amount) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (location, month, warehouse) DO UPDATE SET amount = EXCLUDED.amount",
+                (location, month, wh, amount))
+        else:
+            qex(conn,
+                "INSERT OR REPLACE INTO revenues (location, month, warehouse, amount) VALUES (?, ?, ?, ?)",
+                (location, month, wh, amount))
+        conn.commit()
+        return jsonify({'ok': True, 'location': location, 'month': month, 'amount': amount})
+    except Exception as e:
+        import traceback
+        app.logger.error('api_save_revenue: %s\n%s', e, traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
+# Inicializácia DB pri štarte
+init_db()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5002))

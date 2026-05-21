@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Náklady — prevádzky</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+  body { background: #f0f7fa; }
+  .sidebar { min-height: 100vh; background: #0c4a6e; width: 210px; flex-shrink: 0; }
+  .sidebar .brand { padding: 20px 16px 12px; color: #fff; font-size: 1rem; font-weight: 600; border-bottom: 1px solid #164e63; }
+  .sidebar .brand i { color: #38bdf8; }
+  .wh-switcher { padding: 10px 12px; border-bottom: 1px solid #164e63; display: flex; gap: 6px; }
+  .wh-btn { flex: 1; padding: 5px 4px; font-size: .75rem; font-weight: 600; border-radius: 5px; border: 1px solid #1e6a8a; color: #7dd3fc; background: transparent; cursor: pointer; transition: all .15s; }
+  .wh-btn:hover:not(.wh-active) { background: #164e63; color: #fff; }
+  .wh-btn.wh-active { background: #0891b2; color: #fff; border-color: #0891b2; }
+  .wh-badge { display: inline-block; padding: 2px 9px; border-radius: 4px; font-size: .7rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; background: #0891b2; color: #fff; vertical-align: middle; margin-left: 6px; }
+  .nav-link-side { display: flex; align-items: center; gap: 10px; padding: 11px 16px; color: #7dd3fc; text-decoration: none; font-size: .9rem; transition: background .15s, color .15s; }
+  .nav-link-side:hover { background: #164e63; color: #fff; }
+  .nav-link-side.active { background: #0891b2; color: #fff; }
+  .nav-link-side i { font-size: 1.05rem; width: 20px; }
+  .main-content { flex: 1; padding: 28px; overflow: auto; }
+  .page { display: none; }
+  .page.active { display: block; }
+  .card { border: none; box-shadow: 0 1px 6px rgba(0,0,0,.07); }
+  .stat-card { border-radius: 12px; padding: 20px 22px; color: #fff; }
+  .stat-card .stat-val { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+  .stat-card .stat-lbl { font-size: .8rem; opacity: .85; margin-top: 4px; }
+  .loc-row { cursor: pointer; transition: background .12s; }
+  .loc-row:hover { background: #e0f2fe !important; }
+  .pct-bar { height: 6px; border-radius: 3px; background: #bae6fd; overflow: hidden; }
+  .pct-bar-fill { height: 100%; background: #0891b2; border-radius: 3px; transition: width .4s; }
+  .trend-up { color: #dc2626; }
+  .trend-down { color: #16a34a; }
+  .trend-same { color: #6c757d; }
+  .detail-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 2000; align-items: center; justify-content: center; }
+  .detail-overlay.show { display: flex; }
+  .detail-panel { background: #fff; border-radius: 14px; width: 620px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 16px 48px rgba(0,0,0,.2); }
+  .detail-panel .panel-header { padding: 18px 22px 14px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+  .detail-panel .panel-body { padding: 18px 22px; overflow-y: auto; }
+
+  /* Mobile */
+  .mobile-header { display: none; position: fixed; top: 0; left: 0; right: 0; height: 54px;
+    background: #0c4a6e; z-index: 1100; padding: 0 14px; align-items: center; gap: 10px;
+    border-bottom: 1px solid #164e63; }
+  .hamburger-btn { background: none; border: none; color: #7dd3fc; font-size: 1.4rem; padding: 6px 8px; cursor: pointer; }
+  .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1050; }
+  .sidebar-overlay.show { display: block; }
+  @media (max-width: 767px) {
+    .mobile-header { display: flex !important; }
+    .sidebar { position: fixed; top: 0; left: -220px; bottom: 0; width: 220px;
+      z-index: 1060; transition: left .25s ease; overflow-y: auto; min-height: unset; }
+    .sidebar.open { left: 0; }
+    body { padding-top: 54px; }
+    .main-content { padding: 14px 10px; }
+    input, select { font-size: 16px !important; }
+    .col-hide-mobile { display: none !important; }
+    .stat-card .stat-val { font-size: 1.5rem; }
+    .detail-panel { width: 100%; max-width: 100%; border-radius: 14px 14px 0 0; position: fixed; bottom: 0; max-height: 80vh; }
+    .detail-overlay.show { align-items: flex-end; }
+  }
+</style>
+</head>
+<body>
+
+<div class="mobile-header">
+  <button class="hamburger-btn" onclick="toggleSidebar()"><i class="bi bi-list"></i></button>
+  <span style="color:#fff;font-weight:600;font-size:.95rem"><i class="bi bi-graph-up me-1" style="color:#38bdf8"></i>Náklady</span>
+  <span class="wh-badge ms-auto">{{ warehouse }}</span>
+</div>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+<div class="d-flex">
+
+  <!-- Sidebar -->
+  <div class="sidebar" id="mainSidebar">
+    <div class="brand"><i class="bi bi-graph-up me-2"></i>Náklady</div>
+    <div class="wh-switcher">
+      {% for wh in warehouses %}
+      <button class="wh-btn {% if wh == warehouse %}wh-active{% endif %}"
+              onclick="switchWarehouse('{{ wh }}')">{{ wh }}</button>
+      {% endfor %}
+    </div>
+    <nav class="mt-2">
+      <a href="#" class="nav-link-side active" data-page="prehlad" onclick="nav('prehlad',this,event)">
+        <i class="bi bi-pie-chart"></i>Prehľad
+      </a>
+      <a href="#" class="nav-link-side" data-page="porovnanie" onclick="nav('porovnanie',this,event)">
+        <i class="bi bi-bar-chart-line"></i>Porovnanie
+      </a>
+    </nav>
+    <div class="mt-auto p-3" style="border-top:1px solid #164e63;margin-top:auto">
+      <a href="/logout" class="nav-link-side" style="border-radius:6px">
+        <i class="bi bi-box-arrow-left"></i>Odhlásiť
+      </a>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main-content">
+
+    <!-- ── PREHĽAD ── -->
+    <div id="page-prehlad" class="page active">
+      <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+        <div>
+          <h4 class="mb-0 fw-bold">Prehľad nákladov <span class="wh-badge">{{ warehouse }}</span></h4>
+          <p class="text-muted small mb-0">Náklady na čistiace prostriedky podľa prevádzok</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <select id="prehladMonth" class="form-select form-select-sm" style="width:auto" onchange="loadPrehlad()">
+            <option value="">— načítavam —</option>
+          </select>
+          <button class="btn btn-sm btn-outline-secondary" onclick="loadPrehlad()">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Štatistiky navrchu -->
+      <div class="row g-3 mb-4" id="statsRow">
+        <div class="col-6 col-md-3">
+          <div class="stat-card" style="background:linear-gradient(135deg,#0891b2,#0e7490)">
+            <div class="stat-val" id="statTotal">—</div>
+            <div class="stat-lbl">Celkové náklady (€)</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-card" style="background:linear-gradient(135deg,#7c3aed,#6d28d9)">
+            <div class="stat-val" id="statLocs">—</div>
+            <div class="stat-lbl">Počet prevádzok</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-card" style="background:linear-gradient(135deg,#059669,#047857)">
+            <div class="stat-val" id="statAvg">—</div>
+            <div class="stat-lbl">Priemer / prevádzka (€)</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-card" style="background:linear-gradient(135deg,#d97706,#b45309)">
+            <div class="stat-val" id="statTop">—</div>
+            <div class="stat-lbl">Najdrahšia prevádzka</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabuľka prevádzok -->
+      <div class="card">
+        <div class="card-body p-0">
+          <table class="table table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Prevádzka</th>
+                <th class="text-end">Náklady</th>
+                <th class="col-hide-mobile">Podiel</th>
+                <th class="text-end col-hide-mobile">Produkty</th>
+                <th class="text-end col-hide-mobile">Trend</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="prehladBody"></tbody>
+          </table>
+          <div id="prehladEmpty" class="text-center text-muted py-5" style="display:none">
+            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+            Žiadne výdaje pre tento mesiac.
+          </div>
+          <div id="prehladLoading" class="text-center py-4">
+            <div class="spinner-border spinner-border-sm text-secondary"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── POROVNANIE ── -->
+    <div id="page-porovnanie" class="page">
+      <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+        <div>
+          <h4 class="mb-0 fw-bold">Porovnanie mesiacov <span class="wh-badge">{{ warehouse }}</span></h4>
+          <p class="text-muted small mb-0">Trend nákladov za posledných 6 mesiacov</p>
+        </div>
+        <select id="trendN" class="form-select form-select-sm" style="width:auto" onchange="loadTrend()">
+          <option value="6" selected>6 mesiacov</option>
+          <option value="12">12 mesiacov</option>
+          <option value="3">3 mesiace</option>
+        </select>
+      </div>
+
+      <!-- Graf -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <canvas id="trendChart" height="90"></canvas>
+          <div id="trendEmpty" class="text-center text-muted py-4" style="display:none">
+            <i class="bi bi-bar-chart fs-1 d-block mb-2"></i>Žiadne dáta.
+          </div>
+          <div id="trendLoading" class="text-center py-4">
+            <div class="spinner-border spinner-border-sm text-secondary"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabuľka: prevádzky × mesiace -->
+      <div class="card">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" id="trendTable">
+              <thead class="table-light" id="trendTableHead"></thead>
+              <tbody id="trendTableBody"></tbody>
+            </table>
+          </div>
+          <div id="trendTableEmpty" class="text-center text-muted py-4" style="display:none">
+            Žiadne dáta na porovnanie.
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /flex -->
+
+<!-- Detail prevádzky (overlay panel) -->
+<div class="detail-overlay" id="detailOverlay" onclick="closeDetail(event)">
+  <div class="detail-panel" id="detailPanel">
+    <div class="panel-header">
+      <div>
+        <div class="fw-bold fs-5" id="detailTitle">—</div>
+        <div class="text-muted small" id="detailSub">—</div>
+      </div>
+      <button class="btn btn-sm btn-outline-secondary" onclick="closeDetailPanel()">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    <div class="panel-body">
+      <div id="detailContent"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const WAREHOUSES = {{ warehouses | tojson }};
+let currentWarehouse = {{ warehouse | tojson }};
+const MONTHS_SK = ['Január','Február','Marec','Apríl','Máj','Jún','Júl','August','September','Október','November','December'];
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+function toggleSidebar() {
+  document.getElementById('mainSidebar').classList.toggle('open');
+  document.getElementById('sidebarOverlay').classList.toggle('show');
+}
+function closeSidebar() {
+  document.getElementById('mainSidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('show');
+}
+
+// ── Warehouse ─────────────────────────────────────────────────────────────────
+async function switchWarehouse(wh) {
+  if (wh === currentWarehouse) return;
+  if (!confirm(`Prepnúť na sklad ${wh}?`)) return;
+  await fetch('/api/switch-warehouse', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({warehouse: wh})
+  });
+  window.location.reload();
+}
+
+// ── Nav ───────────────────────────────────────────────────────────────────────
+function nav(page, el, e) {
+  if (e) e.preventDefault();
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-link-side').forEach(l => l.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  if (el) el.classList.add('active');
+  if (page === 'porovnanie') loadTrend();
+  closeSidebar();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmtEur(n) {
+  const f = parseFloat(n) || 0;
+  return f.toFixed(2).replace('.', ',') + ' €';
+}
+function fmtMonth(ym) {
+  if (!ym) return '—';
+  const [y, m] = ym.split('-');
+  return `${MONTHS_SK[parseInt(m,10)-1]} ${y}`;
+}
+function fmtShortMonth(ym) {
+  if (!ym) return '—';
+  const [y, m] = ym.split('-');
+  const names = ['Jan','Feb','Mar','Apr','Máj','Jún','Júl','Aug','Sep','Okt','Nov','Dec'];
+  return `${names[parseInt(m,10)-1]} ${y.slice(2)}`;
+}
+
+async function apiFetch(url) {
+  const res = await fetch(url);
+  if (res.status === 401) { window.location.reload(); return null; }
+  return res;
+}
+
+// ── PREHĽAD ───────────────────────────────────────────────────────────────────
+let prehladData = null;
+let prevMonthData = {};   // {location: cost} za predchádzajúci mesiac
+
+async function initMonths() {
+  const res = await apiFetch('/api/months');
+  if (!res || !res.ok) return;
+  const months = await res.json();
+  const sel = document.getElementById('prehladMonth');
+  const cur = new Date().toISOString().slice(0,7);
+  sel.innerHTML = months.map(m =>
+    `<option value="${m}" ${m===cur?'selected':''}>${fmtMonth(m)}</option>`
+  ).join('');
+  if (!months.length) {
+    sel.innerHTML = '<option value="">Žiadne dáta</option>';
+    return;
+  }
+  if (!months.includes(cur) && months.length) sel.value = months[0];
+  loadPrehlad();
+}
+
+async function loadPrehlad() {
+  const month = document.getElementById('prehladMonth').value;
+  if (!month) return;
+  document.getElementById('prehladLoading').style.display = 'block';
+  document.getElementById('prehladEmpty').style.display = 'none';
+  document.getElementById('prehladBody').innerHTML = '';
+
+  // Načítaj aktuálny a predchádzajúci mesiac paralelne (pre trend šípky)
+  const [y, m] = month.split('-').map(Number);
+  const prevDate = new Date(y, m - 2, 1);
+  const prevMonth = prevDate.toISOString().slice(0, 7);
+
+  const [res, prevRes] = await Promise.all([
+    apiFetch(`/api/summary?month=${month}`),
+    apiFetch(`/api/summary?month=${prevMonth}`)
+  ]);
+  document.getElementById('prehladLoading').style.display = 'none';
+  if (!res || !res.ok) return;
+  const data = await res.json();
+  if (data.error) { alert('Chyba: ' + data.error); return; }
+  prehladData = data;
+
+  // Predchádzajúci mesiac
+  prevMonthData = {};
+  if (prevRes && prevRes.ok) {
+    const prev = await prevRes.json();
+    if (!prev.error) prev.rows.forEach(r => { prevMonthData[r.location] = r.total_cost; });
+  }
+
+  // Štatistiky
+  document.getElementById('statTotal').textContent = fmtEur(data.total);
+  document.getElementById('statLocs').textContent = data.rows.filter(r => r.location !== '— bez prevádzky —').length;
+  const validRows = data.rows.filter(r => r.total_cost > 0);
+  document.getElementById('statAvg').textContent = validRows.length ? fmtEur(data.total / validRows.length) : '0,00 €';
+  document.getElementById('statTop').textContent = validRows.length ? validRows[0].location.replace('— bez prevádzky —','—') : '—';
+
+  // Tabuľka
+  const body = document.getElementById('prehladBody');
+  if (!data.rows.length) {
+    document.getElementById('prehladEmpty').style.display = 'block';
+    return;
+  }
+  body.innerHTML = data.rows.map(r => {
+    const prev = prevMonthData[r.location] || 0;
+    let trendHtml = '<span class="trend-same">—</span>';
+    if (prev > 0 && r.total_cost > 0) {
+      const diff = r.total_cost - prev;
+      const pct = Math.abs(diff / prev * 100).toFixed(0);
+      if (diff > 0.5) trendHtml = `<span class="trend-up"><i class="bi bi-arrow-up-short"></i>${pct}%</span>`;
+      else if (diff < -0.5) trendHtml = `<span class="trend-down"><i class="bi bi-arrow-down-short"></i>${pct}%</span>`;
+      else trendHtml = `<span class="trend-same">±0%</span>`;
+    }
+    return `<tr class="loc-row" onclick="openDetail('${r.location.replace(/'/g,"\\'")}', '${month}')">
+      <td class="fw-semibold">${r.location}</td>
+      <td class="text-end fw-bold">${fmtEur(r.total_cost)}</td>
+      <td class="col-hide-mobile" style="min-width:120px">
+        <div class="d-flex align-items-center gap-2">
+          <div class="pct-bar flex-grow-1"><div class="pct-bar-fill" style="width:${r.pct}%"></div></div>
+          <span class="text-muted small" style="min-width:36px">${r.pct}%</span>
+        </div>
+      </td>
+      <td class="text-end text-muted col-hide-mobile">${r.num_products}</td>
+      <td class="text-end col-hide-mobile">${trendHtml}</td>
+      <td class="text-end"><i class="bi bi-chevron-right text-muted"></i></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Detail prevádzky ──────────────────────────────────────────────────────────
+async function openDetail(location, month) {
+  document.getElementById('detailTitle').textContent = location;
+  document.getElementById('detailSub').textContent = fmtMonth(month);
+  document.getElementById('detailContent').innerHTML =
+    '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-secondary"></div></div>';
+  document.getElementById('detailOverlay').classList.add('show');
+
+  const res = await apiFetch(`/api/location-detail?location=${encodeURIComponent(location)}&month=${month}`);
+  if (!res || !res.ok) { document.getElementById('detailContent').innerHTML = '<div class="alert alert-danger">Chyba načítania.</div>'; return; }
+  const data = await res.json();
+  if (data.error) { document.getElementById('detailContent').innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+
+  document.getElementById('detailContent').innerHTML = `
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <span class="text-muted small">${data.rows.length} produktov</span>
+      <span class="fw-bold fs-5" style="color:#0891b2">${fmtEur(data.total)}</span>
+    </div>
+    <table class="table table-sm">
+      <thead class="table-light">
+        <tr><th>Produkt</th><th class="text-center">Množstvo</th><th class="text-end">Cena/j.</th><th class="text-end">Náklad</th></tr>
+      </thead>
+      <tbody>
+        ${data.rows.map(r => `<tr>
+          <td>
+            <div class="fw-semibold small">${r.name}</div>
+            <code style="font-size:.75rem">${r.code}</code>
+          </td>
+          <td class="text-center">${r.qty % 1 === 0 ? r.qty : r.qty.toFixed(2)} ${r.unit}</td>
+          <td class="text-end text-muted small">${fmtEur(r.unit_price)}</td>
+          <td class="text-end fw-semibold">${fmtEur(r.cost)}</td>
+        </tr>`).join('')}
+      </tbody>
+      <tfoot class="table-light">
+        <tr><td colspan="3" class="fw-bold">Spolu</td><td class="text-end fw-bold" style="color:#0891b2">${fmtEur(data.total)}</td></tr>
+      </tfoot>
+    </table>`;
+}
+
+function closeDetail(e) {
+  if (e && e.target !== document.getElementById('detailOverlay')) return;
+  closeDetailPanel();
+}
+function closeDetailPanel() {
+  document.getElementById('detailOverlay').classList.remove('show');
+}
+
+// ── POROVNANIE ────────────────────────────────────────────────────────────────
+let trendChart = null;
+const CHART_COLORS = [
+  '#0891b2','#7c3aed','#059669','#d97706','#dc2626','#2563eb',
+  '#db2777','#65a30d','#0d9488','#ea580c','#7c3aed','#ca8a04'
+];
+
+async function loadTrend() {
+  const n = parseInt(document.getElementById('trendN').value);
+  document.getElementById('trendLoading').style.display = 'block';
+  document.getElementById('trendEmpty').style.display = 'none';
+  document.getElementById('trendTableEmpty').style.display = 'none';
+  document.getElementById('trendTableBody').innerHTML = '';
+  document.getElementById('trendTableHead').innerHTML = '';
+
+  const res = await apiFetch(`/api/trend?n=${n}`);
+  document.getElementById('trendLoading').style.display = 'none';
+  if (!res || !res.ok) return;
+  const data = await res.json();
+  if (data.error) { alert('Chyba: ' + data.error); return; }
+
+  if (!data.months.length) {
+    document.getElementById('trendEmpty').style.display = 'block';
+    document.getElementById('trendTableEmpty').style.display = 'block';
+    return;
+  }
+
+  // Graf
+  const datasets = data.locations.map((loc, i) => ({
+    label: loc,
+    data: data.data[loc],
+    backgroundColor: CHART_COLORS[i % CHART_COLORS.length] + '99',
+    borderColor: CHART_COLORS[i % CHART_COLORS.length],
+    borderWidth: 2,
+    borderRadius: 4,
+  }));
+
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(document.getElementById('trendChart'), {
+    type: 'bar',
+    data: { labels: data.months.map(fmtShortMonth), datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${fmtEur(ctx.parsed.y)}`
+          }
+        }
+      },
+      scales: {
+        x: { stacked: false, grid: { display: false } },
+        y: {
+          stacked: false,
+          ticks: { callback: v => v.toFixed(0) + ' €' }
+        }
+      }
+    }
+  });
+
+  // Tabuľka: lokácie × mesiace
+  const head = document.getElementById('trendTableHead');
+  const body = document.getElementById('trendTableBody');
+  head.innerHTML = '<tr><th>Prevádzka</th>' +
+    data.months.map(m => `<th class="text-end">${fmtShortMonth(m)}</th>`).join('') +
+    '<th class="text-end">Spolu</th></tr>';
+
+  body.innerHTML = data.locations.map((loc, i) => {
+    const vals = data.data[loc];
+    const total = vals.reduce((s, v) => s + v, 0);
+    const cells = vals.map(v =>
+      `<td class="text-end ${v===0?'text-muted':''}">${v===0?'—':fmtEur(v)}</td>`
+    ).join('');
+    return `<tr>
+      <td><span class="d-inline-block me-1" style="width:10px;height:10px;border-radius:2px;background:${CHART_COLORS[i%CHART_COLORS.length]}"></span>${loc}</td>
+      ${cells}
+      <td class="text-end fw-bold">${fmtEur(total)}</td>
+    </tr>`;
+  }).join('');
+
+  // Riadok Celkom
+  const monthTotals = data.months.map((_, mi) =>
+    data.locations.reduce((s, loc) => s + data.data[loc][mi], 0)
+  );
+  const grandTotal = monthTotals.reduce((s, v) => s + v, 0);
+  body.innerHTML += `<tr class="table-light fw-bold">
+    <td>Celkom</td>
+    ${monthTotals.map(v => `<td class="text-end">${fmtEur(v)}</td>`).join('')}
+    <td class="text-end" style="color:#0891b2">${fmtEur(grandTotal)}</td>
+  </tr>`;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+initMonths();
+</script>
+</body>
+</html>

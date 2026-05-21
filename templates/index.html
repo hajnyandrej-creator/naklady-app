@@ -442,12 +442,14 @@ async function saveRevenue(input) {
     revenues[location] = amount;
     input.classList.remove('saving');
     input.classList.add('saved');
-    // Prepočítaj % v riadku bez reload celej tabuľky
-    const row = input.closest('tr');
-    const costCell = row.querySelector('td:nth-child(2)');
-    const costText = costCell ? costCell.textContent.replace(/[€\s,]/g, '').replace(',', '.') : '0';
-    const cost = parseFloat(costText.replace(',', '.')) || 0;
-    const pctCell = row.querySelector('td:nth-child(4)');
+
+    // Náklady vezmeme priamo z prehladData — nie z DOM textu
+    const rowData = prehladData && prehladData.rows
+      ? prehladData.rows.find(r => r.location === location)
+      : null;
+    const cost = rowData ? rowData.total_cost : 0;
+
+    const pctCell = input.closest('tr').querySelector('td:nth-child(4)');
     if (pctCell) {
       const pct = amount > 0 ? (cost / amount * 100) : null;
       pctCell.innerHTML = pct !== null
